@@ -1,8 +1,8 @@
 import functools
 from typing import override
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal, QSizeF
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import (
     QGraphicsObject,
     QGraphicsProxyWidget,
@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 class WidgetItem(QGraphicsObject):
     item_deleted = Signal(object)
 
-    def __init__(self, title, grid, grid_size=160, span_x=1, span_y=1):
+    def __init__(self, title, grid, grid_size=160, span_x=1, span_y=1, margin=4):
         super().__init__()
         self.title = title
         self.grid_size = grid_size
@@ -29,6 +29,7 @@ class WidgetItem(QGraphicsObject):
         self.span_y = span_y
         self.width = grid_size * span_x
         self.height = grid_size * span_y
+        self.margin = margin
         self.setAcceptHoverEvents(True)
         self.setFlags(
             QGraphicsObject.GraphicsItemFlag.ItemIsMovable | QGraphicsObject.GraphicsItemFlag.ItemIsSelectable
@@ -45,30 +46,26 @@ class WidgetItem(QGraphicsObject):
         self.delete_button.clicked.connect(self.delete_self)
         self.delete_proxy = QGraphicsProxyWidget(self)
         self.delete_proxy.setWidget(self.delete_button)
-        self.delete_proxy.setPos(self.width - 25, 5)
+        self.delete_proxy.setPos(self.width - 25, self.margin + 5)
 
     def boundingRect(self):  # noqa: N802
         return QRectF(0, 0, self.width, self.height)
-
+    
     def paint(self, painter: QPainter, _option: QStyleOptionGraphicsItem, /, _widget: QWidget | None = None):  # type: ignore
         painter.setBrush(QBrush(QColor("white")))
         painter.setPen(QPen(QColor("#ccc"), 1))
-        painter.drawRoundedRect(self.boundingRect(), 10, 10)
+        painter.drawRoundedRect(QRectF(self.margin, self.margin, self.width - 2 * self.margin, self.height - 2 * self.margin), 10, 10)
 
-        title_rect = QRectF(0, 0, self.width, 30)
-        painter.setBrush(QBrush(QColor("#f5f5f5")))
-        painter.drawRoundedRect(title_rect, 10, 10)
+        title_rect = QRectF(self.margin, self.margin, self.width - 2 * self.margin, 30)
+
+        painter.setBrush(QBrush(QColor("#f0f0f0"))) # Example background color for the title bar
+        painter.setPen(Qt.PenStyle.NoPen) #NoPen for the rect
+        painter.drawRoundedRect(title_rect, 10, 10) #Round the bottom corners slightly to prevent a sharp edge
+        painter.drawRect(QRectF(title_rect.x(), title_rect.y()+10, title_rect.width(), title_rect.height()-10))
+
+
         painter.setPen(QPen(QColor("black")))
         painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, self.title)
-
-        grip_rect = QRectF(
-            self.width - self.resize_grip_size,
-            self.height - self.resize_grip_size,
-            self.resize_grip_size,
-            self.resize_grip_size,
-        )
-        painter.setBrush(QBrush(QColor("gray")))
-        painter.drawRect(grip_rect)
 
     @override
     def mousePressEvent(self, event):
@@ -104,7 +101,7 @@ class WidgetItem(QGraphicsObject):
                 self.span_x = new_span_x
                 self.span_y = new_span_y
                 self.prepareGeometryChange()
-                self.delete_proxy.setPos(self.width - 25, 5)
+                self.delete_proxy.setPos(self.width - 25, self.margin + 5)
             self.view.update_highlight(self.pos(), self, new_span_x, new_span_y)
             event.accept()
         else:
@@ -144,7 +141,7 @@ class WidgetItem(QGraphicsObject):
         self.span_y = y
         self.width = self.grid_size * x
         self.height = self.grid_size * y
-        self.delete_proxy.setPos(self.width - 25, 5)
+        self.delete_proxy.setPos(self.width - 25, self.margin + 5)
         self.update()
 
     def snap_to_grid(self):
@@ -263,7 +260,7 @@ class WidgetPalette(QWidget):
                     return
 
     def remove_widget(self, widget):
-        self.graphics_view.scene.removeItem(widget)
+        self.graphics_view.scene().removeItem(widget)
 
 
 class MainWindow(QMainWindow):
