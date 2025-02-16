@@ -8,13 +8,15 @@
             "name": "App",
             "type": "debugpy",
             "request": "launch",
-            "module": "kevinbotlib_dashboard"
+            "module": "kevinbotlib_dashboard",
+            "console": "internalConsole",
         },
         {
             "name": "App RTL",
             "type": "debugpy",
             "request": "launch",
             "module": "kevinbotlib_dashboard",
+            "console": "internalConsole",
             "args": ["--reverse"]
         }
     ]
