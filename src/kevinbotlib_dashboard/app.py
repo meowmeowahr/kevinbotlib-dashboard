@@ -1,25 +1,28 @@
 import functools
 from typing import override
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal, QObject
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QAction
+from PySide6.QtCore import QObject, QPointF, QRectF, QSize, Qt, Signal, QRect
+from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QGraphicsObject,
-    QMenu,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
     QMainWindow,
+    QMenu,
     QPushButton,
     QStyleOptionGraphicsItem,
     QVBoxLayout,
     QWidget,
 )
 
+from kevinbotlib_dashboard.grid_theme import Themes
+
+
 class WidgetItem(QGraphicsObject):
     item_deleted = Signal(object)
 
-    def __init__(self, title, grid: 'GridGraphicsView', span_x=1, span_y=1, margin=4):
+    def __init__(self, title, grid: "GridGraphicsView", span_x=1, span_y=1):
         super().__init__()
         self.title = title
         self.grid_size = grid.grid_size
@@ -27,7 +30,7 @@ class WidgetItem(QGraphicsObject):
         self.span_y = span_y
         self.width = grid.grid_size * span_x
         self.height = grid.grid_size * span_y
-        self.margin = margin
+        self.margin = grid.theme.value.padding
         self.setAcceptHoverEvents(True)
         self.setFlags(
             QGraphicsObject.GraphicsItemFlag.ItemIsMovable | QGraphicsObject.GraphicsItemFlag.ItemIsSelectable
@@ -35,27 +38,28 @@ class WidgetItem(QGraphicsObject):
         self.setZValue(1)
         self.resizing = False
         self.resize_grip_size = 15
-        self.min_width = self.grid_size*2  # Minimum width in pixels
-        self.min_height = self.grid_size*2 # Minimum height in pixels
+        self.min_width = self.grid_size * 2  # Minimum width in pixels
+        self.min_height = self.grid_size * 2  # Minimum height in pixels
         self.view = grid
-
 
     def boundingRect(self):  # noqa: N802
         return QRectF(0, 0, self.width, self.height)
-    
+
     def paint(self, painter: QPainter, _option: QStyleOptionGraphicsItem, /, _widget: QWidget | None = None):  # type: ignore
-        painter.setBrush(QBrush(QColor("white")))
-        painter.setPen(QPen(QColor("#ccc"), 1))
-        painter.drawRoundedRect(QRectF(self.margin, self.margin, self.width - 2 * self.margin, self.height - 2 * self.margin), 10, 10)
+        painter.setBrush(QBrush(QColor(self.view.theme.value.item_background)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(
+            QRect(self.margin, self.margin, self.width - 2 * self.margin, self.height - 2 * self.margin), 10, 10
+        )
 
-        title_rect = QRectF(self.margin, self.margin, self.width - 2 * self.margin, 30)
+        title_rect = QRect(self.margin, self.margin, self.width - 2 * self.margin, 30)
 
-        painter.setBrush(QBrush(QColor("#f0f0f0"))) # Example background color for the title bar
-        painter.setPen(Qt.PenStyle.NoPen) #NoPen for the rect
-        painter.drawRoundedRect(title_rect, 10, 10) #Round the bottom corners slightly to prevent a sharp edge
-        painter.drawRect(QRectF(title_rect.x(), title_rect.y()+10, title_rect.width(), title_rect.height()-10))
+        painter.setBrush(QBrush(QColor(self.view.theme.value.primary)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(title_rect, 10, 10)
+        painter.drawRect(QRect(title_rect.x(), title_rect.y() + 10, title_rect.width(), title_rect.height() - 10))
 
-        painter.setPen(QPen(QColor("black")))
+        painter.setPen(QPen(QColor(self.view.theme.value.foreground)))
         painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, self.title)
 
     @override
@@ -85,13 +89,13 @@ class WidgetItem(QGraphicsObject):
             delta_y = event.pos().y() - self.start_resize_pos.y()
 
             new_width = max(self.min_width, self.start_width + delta_x)  # Enforce minimum width
-            new_height = max(self.min_height, self.start_height + delta_y) # Enforce minimum height
+            new_height = max(self.min_height, self.start_height + delta_y)  # Enforce minimum height
 
             new_span_x = round(new_width / self.grid_size)
             new_span_y = round(new_height / self.grid_size)
 
-            new_width = new_span_x * self.grid_size # Recalculate width
-            new_height = new_span_y * self.grid_size # Recalculate height
+            new_width = new_span_x * self.grid_size  # Recalculate width
+            new_height = new_span_y * self.grid_size  # Recalculate height
 
             if new_width != self.width or new_height != self.height:
                 self.width = new_width
@@ -163,15 +167,16 @@ class WidgetItem(QGraphicsObject):
         self.item_deleted.emit(self)
 
 
-
 class GridGraphicsView(QGraphicsView):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, theme: Themes = Themes.Dark):
         super().__init__(parent)
         self.grid_size = 48
         self.rows, self.cols = 10, 10
+        self.theme = theme
         self.setScene(QGraphicsScene(self))
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
+        self.setBackgroundBrush(QColor(theme.value.background))
         self.draw_grid()
         self.highlight_rect = self.scene().addRect(
             0, 0, self.grid_size, self.grid_size, QPen(Qt.PenStyle.NoPen), QBrush(QColor(0, 255, 0, 100))
@@ -191,7 +196,6 @@ class GridGraphicsView(QGraphicsView):
         bounding_rect = QRectF(QPointF(new_x, new_y), QSize(span_x * grid_size, span_y * grid_size))
         items = self.scene().items(bounding_rect)
         return all(not (isinstance(item, WidgetItem) and item != dragging_widget) for item in items)
-        # return True
 
     def update_highlight(self, position, dragging_widget=None, span_x=1, span_y=1):
         grid_size = self.grid_size
@@ -211,7 +215,7 @@ class GridGraphicsView(QGraphicsView):
     def draw_grid(self):
         grid_size = self.grid_size
         rows, cols = self.rows, self.cols
-        pen = QPen(QColor("#e0e0e0"), 1, Qt.PenStyle.DashLine)
+        pen = QPen(QColor(self.theme.value.border), 1, Qt.PenStyle.DashLine)
         for i in range(cols + 1):
             x = i * grid_size
             self.scene().addLine(x, 0, x, rows * grid_size, pen)
@@ -219,6 +223,7 @@ class GridGraphicsView(QGraphicsView):
             y = i * grid_size
             self.scene().addLine(0, y, cols * grid_size, y, pen)
         self.scene().setSceneRect(0, 0, cols * grid_size, rows * grid_size)
+
 
 class WidgetGridController(QObject):
     def __init__(self, view: GridGraphicsView) -> None:
@@ -244,13 +249,17 @@ class WidgetGridController(QObject):
                         break
                 if valid_position:
                     item.setPos(col * grid_size, row * grid_size)
-                    item.set_span(((item.min_width + self.view.grid_size - 1) // self.view.grid_size), ((item.min_height + self.view.grid_size - 1) // self.view.grid_size))
+                    item.set_span(
+                        ((item.min_width + self.view.grid_size - 1) // self.view.grid_size),
+                        ((item.min_height + self.view.grid_size - 1) // self.view.grid_size),
+                    )
                     self.view.scene().addItem(item)
                     item.item_deleted.connect(functools.partial(self.remove_widget))
                     return
 
     def remove_widget(self, widget):
         self.view.scene().removeItem(widget)
+
 
 class WidgetPalette(QWidget):
     def __init__(self, graphics_view, parent=None):
