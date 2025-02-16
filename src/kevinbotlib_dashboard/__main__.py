@@ -7,7 +7,7 @@ import sys
 from PySide6.QtCore import QCommandLineParser
 from PySide6.QtWidgets import QApplication
 
-from kevinbotlib_dashboard.app import MainWindow
+from kevinbotlib_dashboard.app import Application
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
@@ -16,6 +16,6 @@ if __name__ == "__main__":
     parser.addHelpOption()
     parser.process(app)
 
-    window = MainWindow()
+    window = Application()
     window.show()
     sys.exit(app.exec())
