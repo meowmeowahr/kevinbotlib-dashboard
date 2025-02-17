@@ -411,8 +411,8 @@ class WidgetPalette(QWidget):
 class SettingsWindow(QDialog):
     on_applied = Signal()
 
-    def __init__(self, settings: QSettings):
-        super().__init__()
+    def __init__(self, parent, settings: QSettings):
+        super().__init__(parent=parent)
 
         self.settings = settings
 
@@ -495,7 +495,7 @@ class Application(QMainWindow):
         self.controller = WidgetGridController(self.graphics_view)
         self.controller.load(self.item_loader, self.settings.value("layout", [], type=list))  # type: ignore
 
-        self.settings_window = SettingsWindow(self.settings)
+        self.settings_window = SettingsWindow(self, self.settings)
         self.settings_window.on_applied.connect(self.refresh_settings)
 
     def refresh_settings(self):
