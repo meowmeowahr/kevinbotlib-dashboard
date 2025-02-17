@@ -1,8 +1,9 @@
+from collections.abc import Callable
 import functools
 from typing import override
 
-from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPen
+from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QSize, Qt, Signal, QSettings
+from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QGraphicsObject,
     QGraphicsScene,
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPushButton,
     QStyleOptionGraphicsItem,
     QVBoxLayout,
@@ -232,7 +234,7 @@ class GridGraphicsView(QGraphicsView):
         """Check if all current widgets would fit in the new dimensions"""
         for item in self.scene().items():
             if not isinstance(item, WidgetItem):
-                return
+                continue
             if (
                 item.pos().x() + item.span_x * self.grid_size > new_cols * self.grid_size
                 or item.pos().y() + item.span_y * self.grid_size > new_rows * self.grid_size
@@ -318,6 +320,12 @@ class WidgetGridController(QObject):
 
         # If we get here, no valid position was found
 
+    def add_to_pos(self, item: WidgetItem, x, y):
+        grid_size = self.view.grid_size
+        item.setPos(x * grid_size, y * grid_size)
+        self.view.scene().addItem(item)
+        item.item_deleted.connect(functools.partial(self.remove_widget))
+
     def remove_widget(self, widget):
         self.view.scene().removeItem(widget)
 
@@ -335,6 +343,11 @@ class WidgetGridController(QObject):
                 }
                 widgets.append(widget_info)
         return widgets
+    
+    def load(self, item_loader: Callable[[dict], WidgetItem], items: list[dict]):
+        for item in items:
+            widget_item = item_loader(item)
+            self.add_to_pos(widget_item, item["pos"][0], item["pos"][1])
 
 
 class WidgetPalette(QWidget):
@@ -381,8 +394,44 @@ class Application(QMainWindow):
 
         layout = QHBoxLayout(main_widget)
 
-        graphics_view = GridGraphicsView()
-        palette = WidgetPalette(graphics_view)
+        self.graphics_view = GridGraphicsView()
+        palette = WidgetPalette(self.graphics_view)
 
-        layout.addWidget(graphics_view)
+        layout.addWidget(self.graphics_view)
         layout.addWidget(palette)
+
+        self.controller = WidgetGridController(self.graphics_view)
+        self.settings = QSettings("kevinbotlib", "dashboard")
+        self.controller.load(self.item_loader, self.settings.value("layout", [], type=list)) # type: ignore
+
+    def item_loader(self, item: dict) -> WidgetItem:
+        kind = item["kind"]
+        title = item["title"]
+        span_x = item["span_x"]
+        span_y = item["span_y"]
+
+        match kind:
+            case "base":
+                return WidgetItem(title, self.graphics_view, span_x, span_y)
+
+        return WidgetItem(title, self.graphics_view, span_x, span_y)
+
+    @override
+    def closeEvent(self, event: QCloseEvent):
+        reply = QMessageBox.question(
+            self,
+            "Save Layout",
+            "Do you want to save the current layout before exiting?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.save_slot()
+            event.accept()
+        elif reply == QMessageBox.StandardButton.No:
+            event.accept()
+        else:
+            event.ignore()
+
+    def save_slot(self):
+        self.settings.setValue("layout", self.controller.get_widgets())
