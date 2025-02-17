@@ -7,10 +7,13 @@ import sys
 from PySide6.QtCore import QCommandLineParser
 from PySide6.QtWidgets import QApplication
 
+from kevinbotlib_dashboard import __about__
 from kevinbotlib_dashboard.app import Application
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setApplicationName("KevinbotLib Dashboard")
+    app.setApplicationVersion(__about__.__version__)
 
     parser = QCommandLineParser()
     parser.addHelpOption()

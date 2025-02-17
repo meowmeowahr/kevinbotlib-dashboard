@@ -1,10 +1,11 @@
-from collections.abc import Callable
 import functools
+from collections.abc import Callable
 from typing import override
 
-from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QSize, Qt, Signal, QSettings
+from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QSettings, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QFormLayout,
     QGraphicsObject,
     QGraphicsScene,
     QGraphicsView,
@@ -13,9 +14,12 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QStyleOptionGraphicsItem,
     QVBoxLayout,
     QWidget,
+    QDialog,
+    QButtonGroup
 )
 
 from kevinbotlib_dashboard.grid_theme import Themes
@@ -24,10 +28,12 @@ from kevinbotlib_dashboard.grid_theme import Themes
 class WidgetItem(QGraphicsObject):
     item_deleted = Signal(object)
 
-    def __init__(self, title: str, grid: "GridGraphicsView", span_x=1, span_y=1):
+    def __init__(self, title: str, grid: "GridGraphicsView", span_x=1, span_y=1, data=None):
+        if data is None:
+            data = {}
         super().__init__()
 
-        self.info = {}
+        self.info = data
         self.kind = "base"
 
         self.title = title
@@ -174,21 +180,26 @@ class WidgetItem(QGraphicsObject):
 
 
 class GridGraphicsView(QGraphicsView):
-    def __init__(self, parent=None, theme: Themes = Themes.Dark):
+    def __init__(self, parent=None, grid_size: int = 48, rows=10, cols=10, theme: Themes = Themes.Dark):
         super().__init__(parent)
-        self.grid_size = 48
-        self.rows, self.cols = 10, 10
+        self.grid_size = grid_size
+        self.rows, self.cols = rows, cols
         self.theme = theme
+
         self.setScene(QGraphicsScene(self))
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
         self.setBackgroundBrush(QColor(theme.value.background))
+
+        self.grid_lines = []
         self.draw_grid()
+
         self.highlight_rect = self.scene().addRect(
             0, 0, self.grid_size, self.grid_size, QPen(Qt.PenStyle.NoPen), QBrush(QColor(0, 255, 0, 100))
         )
         self.highlight_rect.setZValue(3)
         self.highlight_rect.hide()
+
 
     def is_valid_drop_position(self, position, dragging_widget=None, span_x=1, span_y=1):
         grid_size = self.grid_size
@@ -219,16 +230,36 @@ class GridGraphicsView(QGraphicsView):
         self.highlight_rect.hide()
 
     def draw_grid(self):
+        for item in reversed(self.grid_lines):
+            self.scene().removeItem(item)
+            self.grid_lines.remove(item)
+
         grid_size = self.grid_size
         rows, cols = self.rows, self.cols
         pen = QPen(QColor(self.theme.value.border), 1, Qt.PenStyle.DashLine)
         for i in range(cols + 1):
             x = i * grid_size
-            self.scene().addLine(x, 0, x, rows * grid_size, pen)
+            self.grid_lines.append(self.scene().addLine(x, 0, x, rows * grid_size, pen))
         for i in range(rows + 1):
             y = i * grid_size
-            self.scene().addLine(0, y, cols * grid_size, y, pen)
+            self.grid_lines.append(self.scene().addLine(0, y, cols * grid_size, y, pen))
         self.scene().setSceneRect(0, 0, cols * grid_size, rows * grid_size)
+
+    def set_grid_size(self, size: int):
+        self.grid_size = size
+        self.draw_grid()
+        self.highlight_rect = self.scene().addRect(
+            0, 0, self.grid_size, self.grid_size, QPen(Qt.PenStyle.NoPen), QBrush(QColor(0, 255, 0, 100))
+        )
+        self.highlight_rect.setZValue(3)
+        self.highlight_rect.hide()
+        for item in self.scene().items():
+            if isinstance(item, WidgetItem):
+                old_x = item.pos().x() // item.grid_size
+                old_y = item.pos().y() // item.grid_size
+                item.grid_size = size
+                item.set_span(item.span_x, item.span_y)
+                item.setPos(old_x * self.grid_size, old_y * self.grid_size)
 
     def can_resize_to(self, new_rows, new_cols):
         """Check if all current widgets would fit in the new dimensions"""
@@ -254,6 +285,7 @@ class GridGraphicsView(QGraphicsView):
             self.scene().removeItem(widget)
 
         self.scene().clear()
+        self.grid_lines.clear()
 
         self.rows = rows
         self.cols = cols
@@ -343,7 +375,7 @@ class WidgetGridController(QObject):
                 }
                 widgets.append(widget_info)
         return widgets
-    
+
     def load(self, item_loader: Callable[[dict], WidgetItem], items: list[dict]):
         for item in items:
             widget_item = item_loader(item)
@@ -361,15 +393,6 @@ class WidgetPalette(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        resize_layout = QHBoxLayout()
-        btn_8x8 = QPushButton("8x8")
-        btn_12x12 = QPushButton("12x12")
-        btn_8x8.clicked.connect(lambda: self.graphics_view.resize_grid(8, 8))
-        btn_12x12.clicked.connect(lambda: self.graphics_view.resize_grid(12, 12))
-        resize_layout.addWidget(btn_8x8)
-        resize_layout.addWidget(btn_12x12)
-        layout.addLayout(resize_layout)
-
         widgets = ["A", "B", "C", "D", "E"]
         for widget_name in widgets:
             button = QPushButton(widget_name)
@@ -384,17 +407,48 @@ class WidgetPalette(QWidget):
         self.graphics_view.scene().removeItem(widget)
 
 
-class SettingsWindow(QWidget):
+class SettingsWindow(QDialog):
+    on_applied = Signal()
+
     def __init__(self, settings: QSettings):
         super().__init__()
-        
+
         self.settings = settings
+
+        self.root_layout = QVBoxLayout()
+        self.setLayout(self.root_layout)
+
+        self.form = QFormLayout()
+        self.root_layout.addLayout(self.form)
+
+        self.grid_size = QSpinBox(minimum=8, maximum=256, singleStep=2, value=self.settings.value("grid", 48, int))  # type: ignore
+        self.form.addRow("Grid Size", self.grid_size)
+
+        self.grid_rows = QSpinBox(minimum=1, maximum=256, singleStep=2, value=self.settings.value("rows", 10, int))  # type: ignore
+        self.form.addRow("Grid Rows", self.grid_rows)
+
+        self.grid_cols = QSpinBox(minimum=1, maximum=256, singleStep=2, value=self.settings.value("cols", 10, int))  # type: ignore
+        self.form.addRow("Grid Columns", self.grid_cols)
+
+        self.button_layout = QHBoxLayout()
+        self.button_layout.addStretch()
+        self.root_layout.addLayout(self.button_layout)
+
+        self.apply_button = QPushButton("Apply")
+        self.apply_button.clicked.connect(self.apply)
+        self.button_layout.addWidget(self.apply_button)
+
+
+    def apply(self):
+        self.on_applied.emit()
+
 
 class Application(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KevinbotLib Dashboard")
 
+        self.settings = QSettings("kevinbotlib", "dashboard")
 
         self.menu = self.menuBar()
         self.menu.setNativeMenuBar(False)
@@ -408,27 +462,43 @@ class Application(QMainWindow):
 
         layout = QHBoxLayout(main_widget)
 
-        self.graphics_view = GridGraphicsView()
+        self.graphics_view = GridGraphicsView(
+            grid_size=self.settings.value("grid", 48, int),  # type: ignore
+            rows=self.settings.value("rows", 10, int),  # type: ignore
+            cols=self.settings.value("cols", 10, int),  # type: ignore
+        )
         palette = WidgetPalette(self.graphics_view)
 
         layout.addWidget(self.graphics_view)
         layout.addWidget(palette)
 
         self.controller = WidgetGridController(self.graphics_view)
-        self.settings = QSettings("kevinbotlib", "dashboard")
-        self.controller.load(self.item_loader, self.settings.value("layout", [], type=list)) # type: ignore
+        self.controller.load(self.item_loader, self.settings.value("layout", [], type=list))  # type: ignore
 
         self.settings_window = SettingsWindow(self.settings)
+        self.settings_window.on_applied.connect(self.refresh_settings)
+
+    def refresh_settings(self):
+        self.settings.setValue("grid", self.settings_window.grid_size.value())
+        self.settings.setValue("rows", self.settings_window.grid_rows.value())
+        self.settings.setValue("cols", self.settings_window.grid_cols.value())
+
+        self.graphics_view.set_grid_size(self.settings.value("grid", 48, int))  # type: ignore
+        if not self.graphics_view.resize_grid(self.settings.value("rows", 10, int), self.settings.value("cols", 10, int)):  # type: ignore
+            QMessageBox.critical(self.settings_window, "Error", "Cannot resize grid to the specified dimensions.")
+            self.settings.setValue("rows", self.graphics_view.rows)
+            self.settings.setValue("cols", self.graphics_view.cols)
 
     def item_loader(self, item: dict) -> WidgetItem:
         kind = item["kind"]
         title = item["title"]
         span_x = item["span_x"]
         span_y = item["span_y"]
+        data = item["info"]
 
         match kind:
             case "base":
-                return WidgetItem(title, self.graphics_view, span_x, span_y)
+                return WidgetItem(title, self.graphics_view, span_x, span_y, data)
 
         return WidgetItem(title, self.graphics_view, span_x, span_y)
 
@@ -453,5 +523,4 @@ class Application(QMainWindow):
         self.settings.setValue("layout", self.controller.get_widgets())
 
     def open_settings(self):
-        self.settings_window = SettingsWindow(self.settings)
         self.settings_window.show()
