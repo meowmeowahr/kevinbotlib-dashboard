@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import override
 
 from kevinbotlib.comm import KevinbotCommClient
-from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QRegularExpression, QSettings, QSize, Qt, Signal, QTimer
+from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QRegularExpression, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QDialog,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -21,7 +22,6 @@ from PySide6.QtWidgets import (
     QStyleOptionGraphicsItem,
     QVBoxLayout,
     QWidget,
-    QLabel,
 )
 
 from kevinbotlib_dashboard.grid_theme import Themes
@@ -527,12 +527,11 @@ class Application(QMainWindow):
     def on_disconnect(self):
         self.connection_status.setText("Robot Disconnected")
 
-
     def refresh_settings(self):
         self.settings.setValue("ip", self.settings_window.net_ip.text())
         self.settings.setValue("port", self.settings_window.net_port.value())
         self.client.host = self.settings.value("ip", "10.0.0.2", str)  # type: ignore
-        self.client.port = self.settings.value("port", 8765, int) # type: ignore
+        self.client.port = self.settings.value("port", 8765, int)  # type: ignore
 
         self.ip_status.setText(str(self.settings.value("ip", "10.0.0.2", str)))
 
