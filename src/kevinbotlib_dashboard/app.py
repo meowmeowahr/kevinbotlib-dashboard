@@ -24,6 +24,10 @@ class WidgetItem(QGraphicsObject):
 
     def __init__(self, title, grid: "GridGraphicsView", span_x=1, span_y=1):
         super().__init__()
+
+        self.info = {}
+        self.kind = "base"
+
         self.title = title
         self.grid_size = grid.grid_size
         self.span_x = span_x
@@ -241,23 +245,18 @@ class GridGraphicsView(QGraphicsView):
             print(f"Cannot resize to {rows}x{cols} - widgets would be out of bounds")
             return False
             
-        # Store references to existing widgets
         widgets = [item for item in self.scene().items() if isinstance(item, WidgetItem)]
         
-        # Temporarily remove widgets (but don't delete them)
         for widget in widgets:
             self.scene().removeItem(widget)
         
-        # Clear remaining scene items (grid lines)
         self.scene().clear()
         
         self.rows = rows
         self.cols = cols
         
-        # Redraw grid
         self.draw_grid()
         
-        # Recreate highlight rect
         self.highlight_rect = self.scene().addRect(
             0, 0, self.grid_size, self.grid_size, 
             QPen(Qt.PenStyle.NoPen), 
@@ -266,7 +265,6 @@ class GridGraphicsView(QGraphicsView):
         self.highlight_rect.setZValue(3)
         self.highlight_rect.hide()
         
-        # Add back the original widget instances
         for widget in widgets:
             self.scene().addItem(widget)
             
@@ -332,6 +330,21 @@ class WidgetGridController(QObject):
     def remove_widget(self, widget):
         self.view.scene().removeItem(widget)
 
+    def get_widgets(self) -> list:
+        widgets = []
+        for item in self.view.scene().items():
+            if isinstance(item, WidgetItem):
+                widget_info = {
+                    "pos": (item.pos().x() // item.grid_size, item.pos().y() // item.grid_size),
+                    "span_x": item.span_x,
+                    "span_y": item.span_y,
+                    "info": item.info,
+                    "kind": item.kind,
+                    "title": item.title,
+                }
+                widgets.append(widget_info)
+        return widgets
+
 
 class WidgetPalette(QWidget):
     def __init__(self, graphics_view, parent=None):
@@ -362,6 +375,7 @@ class WidgetPalette(QWidget):
 
     def add_widget(self, widget_name):
         self.controller.add(WidgetItem(widget_name, self.graphics_view))
+        print(self.controller.get_widgets())
 
     def remove_widget(self, widget):
         self.graphics_view.scene().removeItem(widget)
