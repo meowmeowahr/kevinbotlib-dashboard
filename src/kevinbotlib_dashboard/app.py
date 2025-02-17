@@ -2,14 +2,17 @@ import functools
 from collections.abc import Callable
 from typing import override
 
-from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QSettings, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen
+from kevinbotlib.comm import KevinbotCommClient
+from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QRegularExpression, QSettings, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen, QRegularExpressionValidator
 from PySide6.QtWidgets import (
+    QDialog,
     QFormLayout,
     QGraphicsObject,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -18,11 +21,10 @@ from PySide6.QtWidgets import (
     QStyleOptionGraphicsItem,
     QVBoxLayout,
     QWidget,
-    QDialog,
-    QButtonGroup
 )
 
 from kevinbotlib_dashboard.grid_theme import Themes
+from kevinbotlib_dashboard.widgets import Divider
 
 
 class WidgetItem(QGraphicsObject):
@@ -199,7 +201,6 @@ class GridGraphicsView(QGraphicsView):
         )
         self.highlight_rect.setZValue(3)
         self.highlight_rect.hide()
-
 
     def is_valid_drop_position(self, position, dragging_widget=None, span_x=1, span_y=1):
         grid_size = self.grid_size
@@ -421,6 +422,8 @@ class SettingsWindow(QDialog):
         self.form = QFormLayout()
         self.root_layout.addLayout(self.form)
 
+        self.form.addRow(Divider("Grid"))
+
         self.grid_size = QSpinBox(minimum=8, maximum=256, singleStep=2, value=self.settings.value("grid", 48, int))  # type: ignore
         self.form.addRow("Grid Size", self.grid_size)
 
@@ -430,6 +433,18 @@ class SettingsWindow(QDialog):
         self.grid_cols = QSpinBox(minimum=1, maximum=256, singleStep=2, value=self.settings.value("cols", 10, int))  # type: ignore
         self.form.addRow("Grid Columns", self.grid_cols)
 
+        self.form.addRow(Divider("Network"))
+
+        self.net_ip = QLineEdit(self.settings.value("ip", "10.0.0.2", str), placeholderText="***.***.***.***")  # type: ignore
+        ip_range = "(?:[0-1]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])"
+        ip_regex = QRegularExpression("^" + ip_range + "\\." + ip_range + "\\." + ip_range + "\\." + ip_range + "$")
+        ip_validator = QRegularExpressionValidator(ip_regex)
+        self.net_ip.setValidator(ip_validator)
+        self.form.addRow("IP Address", self.net_ip)
+
+        self.net_port = QSpinBox(minimum=1024, maximum=65535, value=self.settings.value("port", 8765, int))  # type: ignore
+        self.form.addRow("Port", self.net_port)
+
         self.button_layout = QHBoxLayout()
         self.button_layout.addStretch()
         self.root_layout.addLayout(self.button_layout)
@@ -437,7 +452,6 @@ class SettingsWindow(QDialog):
         self.apply_button = QPushButton("Apply")
         self.apply_button.clicked.connect(self.apply)
         self.button_layout.addWidget(self.apply_button)
-
 
     def apply(self):
         self.on_applied.emit()
@@ -449,6 +463,12 @@ class Application(QMainWindow):
         self.setWindowTitle("KevinbotLib Dashboard")
 
         self.settings = QSettings("kevinbotlib", "dashboard")
+
+        self.client = KevinbotCommClient(
+            host=self.settings.value("ip", "10.0.0.2", str),  # type: ignore
+            port=self.settings.value("port", 8765, int),  # type: ignore
+        )
+        self.client.connect()
 
         self.menu = self.menuBar()
         self.menu.setNativeMenuBar(False)
@@ -479,12 +499,19 @@ class Application(QMainWindow):
         self.settings_window.on_applied.connect(self.refresh_settings)
 
     def refresh_settings(self):
+        self.settings.setValue("ip", self.settings_window.net_ip.text())
+        self.settings.setValue("port", self.settings_window.net_port.value())
+        self.client.host = self.settings.value("ip", "10.0.0.2", str)  # type: ignore
+        self.client.port = self.settings.value("port", 8765, int) # type: ignore
+
         self.settings.setValue("grid", self.settings_window.grid_size.value())
         self.settings.setValue("rows", self.settings_window.grid_rows.value())
         self.settings.setValue("cols", self.settings_window.grid_cols.value())
 
         self.graphics_view.set_grid_size(self.settings.value("grid", 48, int))  # type: ignore
-        if not self.graphics_view.resize_grid(self.settings.value("rows", 10, int), self.settings.value("cols", 10, int)):  # type: ignore
+        if not self.graphics_view.resize_grid(
+            self.settings.value("rows", 10, int), self.settings.value("cols", 10, int)
+        ):  # type: ignore
             QMessageBox.critical(self.settings_window, "Error", "Cannot resize grid to the specified dimensions.")
             self.settings.setValue("rows", self.graphics_view.rows)
             self.settings.setValue("cols", self.graphics_view.cols)

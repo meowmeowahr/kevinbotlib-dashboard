@@ -10,6 +10,15 @@
             "request": "launch",
             "module": "kevinbotlib_dashboard",
             "console": "internalConsole",
+            "args": ["--verbose"]
+        },
+        {
+            "name": "App TRACE",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "kevinbotlib_dashboard",
+            "console": "internalConsole",
+            "args": ["--trace"]
         },
         {
             "name": "App RTL",

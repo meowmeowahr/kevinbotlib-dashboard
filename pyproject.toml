@@ -56,7 +56,7 @@ omit = [
 ]
 
 [project.gui-scripts]
-kevinbotlib_dashboard = "kevinbotlib_dashboard.app:run"
+kevinbotlib_dashboard = "kevinbotlib_dashboard.__main__:run"
 
 [tool.coverage.paths]
 kevinbotlib_dashboard = ["src/kevinbotlib_dashboard", "*/kevinbotlib-dashboard/src/kevinbotlib_dashboard"]
