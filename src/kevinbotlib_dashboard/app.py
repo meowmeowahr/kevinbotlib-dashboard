@@ -384,10 +384,24 @@ class WidgetPalette(QWidget):
         self.graphics_view.scene().removeItem(widget)
 
 
+class SettingsWindow(QWidget):
+    def __init__(self, settings: QSettings):
+        super().__init__()
+        
+        self.settings = settings
+
 class Application(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KevinbotLib Dashboard")
+
+
+        self.menu = self.menuBar()
+        self.menu.setNativeMenuBar(False)
+
+        self.edit_menu = self.menu.addMenu("&Edit")
+
+        self.settings_action = self.edit_menu.addAction("Settings", self.open_settings)
 
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
@@ -403,6 +417,8 @@ class Application(QMainWindow):
         self.controller = WidgetGridController(self.graphics_view)
         self.settings = QSettings("kevinbotlib", "dashboard")
         self.controller.load(self.item_loader, self.settings.value("layout", [], type=list)) # type: ignore
+
+        self.settings_window = SettingsWindow(self.settings)
 
     def item_loader(self, item: dict) -> WidgetItem:
         kind = item["kind"]
@@ -435,3 +451,7 @@ class Application(QMainWindow):
 
     def save_slot(self):
         self.settings.setValue("layout", self.controller.get_widgets())
+
+    def open_settings(self):
+        self.settings_window = SettingsWindow(self.settings)
+        self.settings_window.show()
