@@ -2,8 +2,8 @@ import functools
 from collections.abc import Callable
 from typing import override
 
-from kevinbotlib.comm import KevinbotCommClient
-from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QRegularExpression, QSettings, QSize, Qt, QTimer, Signal
+
+from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QRegularExpression, QSettings, QSize, Qt, QTimer, Signal, Slot, QModelIndex
 from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QDialog,
@@ -22,9 +22,14 @@ from PySide6.QtWidgets import (
     QStyleOptionGraphicsItem,
     QVBoxLayout,
     QWidget,
+    QTreeView,
 )
 
+from kevinbotlib.comm import KevinbotCommClient
+from kevinbotlib.logger import Logger
+
 from kevinbotlib_dashboard.grid_theme import Themes
+from kevinbotlib_dashboard.tree import DictTreeModel
 from kevinbotlib_dashboard.widgets import Divider
 
 
@@ -389,18 +394,16 @@ class WidgetPalette(QWidget):
         super().__init__(parent)
         self.graphics_view = graphics_view
         self.controller = WidgetGridController(self.graphics_view)
-        self.setup_ui()
 
-    def setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        widgets = ["A", "B", "C", "D", "E"]
-        for widget_name in widgets:
-            button = QPushButton(widget_name)
-            button.clicked.connect(lambda _, name=widget_name: self.add_widget(name))
-            layout.addWidget(button)
-        layout.addStretch()
+        self.tree = QTreeView()
+        self.tree.setHeaderHidden(True)
+        layout.addWidget(self.tree)
+
+        self.model = DictTreeModel({})
+        self.tree.setModel(self.model)
 
     def add_widget(self, widget_name):
         self.controller.add(WidgetItem(widget_name, self.graphics_view))
@@ -465,6 +468,8 @@ class Application(QMainWindow):
 
         self.settings = QSettings("kevinbotlib", "dashboard")
 
+        self.logger = Logger()
+
         self.client = KevinbotCommClient(
             host=self.settings.value("ip", "10.0.0.2", str),  # type: ignore
             port=self.settings.value("port", 8765, int),  # type: ignore
@@ -502,6 +507,8 @@ class Application(QMainWindow):
             cols=self.settings.value("cols", 10, int),  # type: ignore
         )
         palette = WidgetPalette(self.graphics_view)
+        self.model = palette.model
+        self.tree = palette.tree
 
         layout.addWidget(self.graphics_view)
         layout.addWidget(palette)
@@ -510,6 +517,11 @@ class Application(QMainWindow):
         self.latency_timer.setInterval(1000)
         self.latency_timer.timeout.connect(self.update_latency)
         self.latency_timer.start()
+
+        self.update_timer = QTimer()
+        self.update_timer.setInterval(100)
+        self.update_timer.timeout.connect(self.update_tree)
+        self.update_timer.start()
 
         self.controller = WidgetGridController(self.graphics_view)
         self.controller.load(self.item_loader, self.settings.value("layout", [], type=list))  # type: ignore
@@ -521,8 +533,115 @@ class Application(QMainWindow):
         if self.client.websocket:
             self.latency_status.setText(f"Latency: {self.client.websocket.latency:.2f}ms")
 
+    @Slot()
+    def update_tree(self, *args):
+        # Get the latest data
+        data_store = self.client.get_keys()
+        data = {}
+
+        # here we process what data can be displayed
+        for key, value in [(key, self.client.get_raw(key)) for key in data_store]:
+            if "struct" in value and "dashboard" in value["struct"]:
+                structured = {}
+                for viewable in value["struct"]["dashboard"]:
+                    display = ""
+                    if "element" in viewable:
+                        raw = value[viewable["element"]]
+                        if "format" in viewable:
+                            fmt = viewable["format"]
+                            if fmt == "percent":
+                                display = f"{raw * 100:.2f}%"
+                            elif fmt == "degrees":
+                                display = f"{raw}°"
+                            elif fmt == "radians":
+                                display = f"{raw} rad"
+                            elif fmt.startswith("limit:"):
+                                limit = int(fmt.split(":")[1])
+                                display = raw[:limit]
+                            else:
+                                display = raw
+
+                    structured[viewable["element"]] = display
+                data[key] = structured
+            else:
+                self.logger.error(f"Could not display {key}, it dosen't contain a structure")
+            
+
+        def to_hierarchical_dict(flat_dict: dict):
+            """Convert a flat dictionary into a hierarchical one based on '/'."""
+            hierarchical_dict = {}
+            for key, value in flat_dict.items():
+                parts = key.split('/')
+                d = hierarchical_dict
+                for part in parts[:-1]:
+                    d = d.setdefault(part, {})
+                d[parts[-1]] = {"items": value, "key": key}
+            return hierarchical_dict
+
+        # Convert flat dictionary to hierarchical
+
+        expanded_indexes = []
+        def store_expansion(parent=QModelIndex()):
+            for row in range(self.model.rowCount(parent)):
+                index = self.model.index(row, 0, parent)
+                if self.tree.isExpanded(index):
+                    expanded_indexes.append((
+                    self.get_index_path(index),
+                    True
+                    ))
+                store_expansion(index)
+        store_expansion()
+        
+        # Store selection
+        selected_paths = self.get_selection_paths()
+
+
+        # Update data...
+        h = to_hierarchical_dict(data)
+        self.model.update_data(h)
+
+        # Restore states
+        def restore_expansion():
+            for path, was_expanded in expanded_indexes:
+                index = self.get_index_from_path(path)
+                if index.isValid() and was_expanded:
+                    self.tree.setExpanded(index, True)
+        restore_expansion()
+        
+        # Restore selection
+        self.restore_selection(selected_paths)
+
+    def get_selection_paths(self):
+        paths = []
+        for index in self.tree.selectionModel().selectedIndexes():
+            if index.column() == 0:  # Only store for first column
+                paths.append(self.get_index_path(index))
+        return paths
+
+    def restore_selection(self, paths):
+        selection_model = self.tree.selectionModel()
+        selection_model.clear()
+        for path in paths:
+            index = self.get_index_from_path(path)
+            if index.isValid():
+                selection_model.select(index, selection_model.SelectionFlag.Select | selection_model.SelectionFlag.Rows)
+
+    def get_index_path(self, index):
+        path = []
+        while index.isValid():
+            path.append(index.row())
+            index = self.model.parent(index)
+        return tuple(reversed(path))
+
+    def get_index_from_path(self, path):
+        index = QModelIndex()
+        for row in path:
+            index = self.model.index(row, 0, index)
+        return index
+        
     def on_connect(self):
         self.connection_status.setText("Robot Connected")
+        self.update_tree()
 
     def on_disconnect(self):
         self.connection_status.setText("Robot Disconnected")

@@ -26,7 +26,6 @@ classifiers = [
 ]
 dependencies = [
   "pyside6~=6.8.2.1",
-  "kevinbotlib==1.0.0a2"
 ]
 
 [project.urls]
