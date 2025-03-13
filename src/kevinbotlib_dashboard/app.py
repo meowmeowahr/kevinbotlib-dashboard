@@ -2,8 +2,24 @@ import functools
 from collections.abc import Callable
 from typing import override
 
+from kevinbotlib.comm import KevinbotCommClient
+from kevinbotlib.logger import Logger
+from kevinbotlib.ui.theme import Theme, ThemeStyle
 
-from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QRegularExpression, QSettings, QSize, Qt, QTimer, Signal, Slot, QModelIndex
+from PySide6.QtCore import (
+    QModelIndex,
+    QObject,
+    QPointF,
+    QRect,
+    QRectF,
+    QRegularExpression,
+    QSettings,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QDialog,
@@ -20,15 +36,13 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QStyleOptionGraphicsItem,
+    QTreeView,
     QVBoxLayout,
     QWidget,
-    QTreeView,
 )
 
-from kevinbotlib.comm import KevinbotCommClient
-from kevinbotlib.logger import Logger
-
 from kevinbotlib_dashboard.grid_theme import Themes
+from kevinbotlib_dashboard.toast import Notifier, Severity
 from kevinbotlib_dashboard.tree import DictTreeModel
 from kevinbotlib_dashboard.widgets import Divider
 
@@ -478,12 +492,20 @@ class Application(QMainWindow):
         )
         self.client.connect()
 
+        self.notifier = Notifier(self)
+
         self.menu = self.menuBar()
         self.menu.setNativeMenuBar(False)
+
+        self.file_menu = self.menu.addMenu("&File")
+
+        self.save_action = self.file_menu.addAction("Save Layout", self.save_slot)
+        self.save_action.setShortcut("Ctrl+S")
 
         self.edit_menu = self.menu.addMenu("&Edit")
 
         self.settings_action = self.edit_menu.addAction("Settings", self.open_settings)
+        self.settings_action.setShortcut("Ctrl+,")
 
         self.status = self.statusBar()
 
@@ -534,13 +556,16 @@ class Application(QMainWindow):
             self.latency_status.setText(f"Latency: {self.client.websocket.latency:.2f}ms")
 
     @Slot()
-    def update_tree(self, *args):
+    def update_tree(self):
         # Get the latest data
         data_store = self.client.get_keys()
         data = {}
 
         # here we process what data can be displayed
         for key, value in [(key, self.client.get_raw(key)) for key in data_store]:
+            if not value:
+                continue
+
             if "struct" in value and "dashboard" in value["struct"]:
                 structured = {}
                 for viewable in value["struct"]["dashboard"]:
@@ -565,13 +590,12 @@ class Application(QMainWindow):
                 data[key] = structured
             else:
                 self.logger.error(f"Could not display {key}, it dosen't contain a structure")
-            
 
         def to_hierarchical_dict(flat_dict: dict):
             """Convert a flat dictionary into a hierarchical one based on '/'."""
             hierarchical_dict = {}
             for key, value in flat_dict.items():
-                parts = key.split('/')
+                parts = key.split("/")
                 d = hierarchical_dict
                 for part in parts[:-1]:
                     d = d.setdefault(part, {})
@@ -581,20 +605,18 @@ class Application(QMainWindow):
         # Convert flat dictionary to hierarchical
 
         expanded_indexes = []
-        def store_expansion(parent=QModelIndex()):
+
+        def store_expansion(parent):
             for row in range(self.model.rowCount(parent)):
                 index = self.model.index(row, 0, parent)
                 if self.tree.isExpanded(index):
-                    expanded_indexes.append((
-                    self.get_index_path(index),
-                    True
-                    ))
+                    expanded_indexes.append((self.get_index_path(index), True))
                 store_expansion(index)
-        store_expansion()
-        
+
+        store_expansion(QModelIndex())
+
         # Store selection
         selected_paths = self.get_selection_paths()
-
 
         # Update data...
         h = to_hierarchical_dict(data)
@@ -606,17 +628,16 @@ class Application(QMainWindow):
                 index = self.get_index_from_path(path)
                 if index.isValid() and was_expanded:
                     self.tree.setExpanded(index, True)
+
         restore_expansion()
-        
+
         # Restore selection
         self.restore_selection(selected_paths)
 
     def get_selection_paths(self):
-        paths = []
-        for index in self.tree.selectionModel().selectedIndexes():
-            if index.column() == 0:  # Only store for first column
-                paths.append(self.get_index_path(index))
-        return paths
+        return [
+            self.get_index_path(index) for index in self.tree.selectionModel().selectedIndexes() if index.column() == 0
+        ]
 
     def restore_selection(self, paths):
         selection_model = self.tree.selectionModel()
@@ -638,7 +659,7 @@ class Application(QMainWindow):
         for row in path:
             index = self.model.index(row, 0, index)
         return index
-        
+
     def on_connect(self):
         self.connection_status.setText("Robot Connected")
         self.update_tree()
@@ -698,6 +719,7 @@ class Application(QMainWindow):
 
     def save_slot(self):
         self.settings.setValue("layout", self.controller.get_widgets())
+        self.notifier.toast("Layout Saved", "Layout saved successfully", severity=Severity.Success)
 
     def open_settings(self):
         self.settings_window.show()
