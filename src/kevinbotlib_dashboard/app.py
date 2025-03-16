@@ -2,9 +2,8 @@ import functools
 from collections.abc import Callable
 from typing import override
 
-from kevinbotlib.comm import KevinbotCommClient
+from kevinbotlib.comm import CommunicationClient
 from kevinbotlib.logger import Logger
-from kevinbotlib.ui.theme import Theme, ThemeStyle
 
 from PySide6.QtCore import (
     QModelIndex,
@@ -484,7 +483,7 @@ class Application(QMainWindow):
 
         self.logger = Logger()
 
-        self.client = KevinbotCommClient(
+        self.client = CommunicationClient(
             host=self.settings.value("ip", "10.0.0.2", str),  # type: ignore
             port=self.settings.value("port", 8765, int),  # type: ignore
             on_disconnect=self.on_disconnect,
