@@ -4,7 +4,6 @@ from typing import override
 
 from kevinbotlib.comm import CommunicationClient
 from kevinbotlib.logger import Logger
-
 from PySide6.QtCore import (
     QModelIndex,
     QObject,

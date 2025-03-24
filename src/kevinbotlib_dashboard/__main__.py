@@ -5,7 +5,7 @@
 import sys
 
 from kevinbotlib.logger import Level, Logger, LoggerConfiguration
-from kevinbotlib.ui.theme import ThemeStyle, Theme
+from kevinbotlib.ui.theme import Theme, ThemeStyle
 from PySide6.QtCore import QCommandLineOption, QCommandLineParser, QCoreApplication
 from PySide6.QtWidgets import QApplication
 
@@ -19,7 +19,7 @@ def run():
     app.setApplicationVersion(__about__.__version__)
 
     Theme(ThemeStyle.System).apply(app)
-    
+
     parser = QCommandLineParser()
     parser.addHelpOption()
     parser.addVersionOption()
