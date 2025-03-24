@@ -2,7 +2,7 @@ import functools
 from collections.abc import Callable
 from typing import override
 
-from kevinbotlib.comm import CommunicationClient
+from kevinbotlib.comm import CommunicationClient, BaseSendable
 from kevinbotlib.logger import Logger
 from PySide6.QtCore import (
     QModelIndex,
@@ -17,11 +17,13 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
     Slot,
+    QItemSelection,
 )
 from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
+    QFrame,
     QGraphicsObject,
     QGraphicsScene,
     QGraphicsView,
@@ -37,6 +39,7 @@ from PySide6.QtWidgets import (
     QTreeView,
     QVBoxLayout,
     QWidget,
+    QStackedWidget,
 )
 
 from kevinbotlib_dashboard.grid_theme import Themes
@@ -409,6 +412,7 @@ class WidgetPalette(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         self.tree = QTreeView()
         self.tree.setHeaderHidden(True)
@@ -416,6 +420,13 @@ class WidgetPalette(QWidget):
 
         self.model = DictTreeModel({})
         self.tree.setModel(self.model)
+        self.tree.selectionChanged = self._tree_select
+
+        self.panel = TopicStatusPanel()
+        layout.addWidget(self.panel)
+
+    def _tree_select(self, selected: QItemSelection, _: QItemSelection):
+        self.panel.set_data(selected.indexes()[0].data(Qt.ItemDataRole.UserRole))
 
     def add_widget(self, widget_name):
         self.controller.add(WidgetItem(widget_name, self.graphics_view))
@@ -471,6 +482,33 @@ class SettingsWindow(QDialog):
 
     def apply(self):
         self.on_applied.emit()
+
+
+class TopicStatusPanel(QStackedWidget):
+    def __init__(self):
+        super().__init__()
+        self.setFrameShape(QFrame.Shape.Panel)
+
+        no_data_label = QLabel("Select a topic for more info", alignment=Qt.AlignmentFlag.AlignCenter)
+        no_data_label.setContentsMargins(16, 16, 16, 16)
+        self.addWidget(no_data_label)
+
+        data_widget = QWidget()
+        self.addWidget(data_widget)
+
+        data_layout = QVBoxLayout()
+        data_widget.setLayout(data_layout)
+
+        self.set_data(None)
+
+    def set_data(self, data: str | None):
+        if not data:
+            self.setCurrentIndex(0)
+        else:
+            self.setCurrentIndex(1)
+
+        
+
 
 
 class Application(QMainWindow):
@@ -587,7 +625,7 @@ class Application(QMainWindow):
                     structured[viewable["element"]] = display
                 data[key] = structured
             else:
-                self.logger.error(f"Could not display {key}, it dosen't contain a structure")
+                self.logger.trace(f"Could not display {key}, it dosen't contain a structure")
 
         def to_hierarchical_dict(flat_dict: dict):
             """Convert a flat dictionary into a hierarchical one based on '/'."""
