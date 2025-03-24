@@ -5,6 +5,7 @@ from typing import override
 from kevinbotlib.comm import CommunicationClient, BaseSendable
 from kevinbotlib.logger import Logger
 from PySide6.QtCore import (
+    QItemSelection,
     QModelIndex,
     QObject,
     QPointF,
@@ -17,7 +18,6 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
     Slot,
-    QItemSelection,
 )
 from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QPainter, QPen, QRegularExpressionValidator
 from PySide6.QtWidgets import (
@@ -35,11 +35,11 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QStackedWidget,
     QStyleOptionGraphicsItem,
     QTreeView,
     QVBoxLayout,
     QWidget,
-    QStackedWidget,
 )
 
 from kevinbotlib_dashboard.grid_theme import Themes
@@ -405,8 +405,11 @@ class WidgetGridController(QObject):
 
 
 class WidgetPalette(QWidget):
-    def __init__(self, graphics_view, parent=None):
+    def __init__(self, graphics_view, client: CommunicationClient, parent=None):
         super().__init__(parent)
+        
+        self.client = client
+
         self.graphics_view = graphics_view
         self.controller = WidgetGridController(self.graphics_view)
 
@@ -422,7 +425,7 @@ class WidgetPalette(QWidget):
         self.tree.setModel(self.model)
         self.tree.selectionChanged = self._tree_select
 
-        self.panel = TopicStatusPanel()
+        self.panel = TopicStatusPanel(self.client)
         layout.addWidget(self.panel)
 
     def _tree_select(self, selected: QItemSelection, _: QItemSelection):
@@ -485,9 +488,11 @@ class SettingsWindow(QDialog):
 
 
 class TopicStatusPanel(QStackedWidget):
-    def __init__(self):
+    def __init__(self, client: CommunicationClient):
         super().__init__()
         self.setFrameShape(QFrame.Shape.Panel)
+
+        self.client = client
 
         no_data_label = QLabel("Select a topic for more info", alignment=Qt.AlignmentFlag.AlignCenter)
         no_data_label.setContentsMargins(16, 16, 16, 16)
@@ -499,16 +504,29 @@ class TopicStatusPanel(QStackedWidget):
         data_layout = QVBoxLayout()
         data_widget.setLayout(data_layout)
 
+        self.data_topic = QLabel()
+        self.data_topic.setStyleSheet("font-size: 18px;")
+        data_layout.addWidget(self.data_topic)
+
+        data_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine))
+
+        self.data_type = QLabel("Data Type: Unknown")
+        data_layout.addWidget(self.data_type)
+
+        data_layout.addStretch()
+
         self.set_data(None)
 
     def set_data(self, data: str | None):
         if not data:
             self.setCurrentIndex(0)
-        else:
-            self.setCurrentIndex(1)
-
+            return
         
+        self.setCurrentIndex(1)
 
+        self.data_topic.setText(data)
+        raw = self.client.get_raw(data)
+        self.data_type.setText(f"Data Type: {raw['did'] if raw else 'Unknown'}")
 
 
 class Application(QMainWindow):
@@ -564,7 +582,7 @@ class Application(QMainWindow):
             rows=self.settings.value("rows", 10, int),  # type: ignore
             cols=self.settings.value("cols", 10, int),  # type: ignore
         )
-        palette = WidgetPalette(self.graphics_view)
+        palette = WidgetPalette(self.graphics_view, self.client)
         self.model = palette.model
         self.tree = palette.tree
 
