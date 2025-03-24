@@ -4,6 +4,8 @@ from typing import override
 
 from kevinbotlib.comm import CommunicationClient, BaseSendable
 from kevinbotlib.logger import Logger
+from kevinbotlib.ui.theme import Theme, ThemeStyle
+
 from PySide6.QtCore import (
     QItemSelection,
     QModelIndex,
@@ -40,9 +42,12 @@ from PySide6.QtWidgets import (
     QTreeView,
     QVBoxLayout,
     QWidget,
+    QRadioButton,
+    QSizePolicy,
+    QApplication,
 )
 
-from kevinbotlib_dashboard.grid_theme import Themes
+from kevinbotlib_dashboard.grid_theme import Themes as GridThemes
 from kevinbotlib_dashboard.toast import Notifier, Severity
 from kevinbotlib_dashboard.tree import DictTreeModel
 from kevinbotlib_dashboard.widgets import Divider
@@ -203,7 +208,7 @@ class WidgetItem(QGraphicsObject):
 
 
 class GridGraphicsView(QGraphicsView):
-    def __init__(self, parent=None, grid_size: int = 48, rows=10, cols=10, theme: Themes = Themes.Dark):
+    def __init__(self, parent=None, grid_size: int = 48, rows=10, cols=10, theme: GridThemes = GridThemes.Dark):
         super().__init__(parent)
         self.grid_size = grid_size
         self.rows, self.cols = rows, cols
@@ -222,6 +227,11 @@ class GridGraphicsView(QGraphicsView):
         )
         self.highlight_rect.setZValue(3)
         self.highlight_rect.hide()
+
+    def set_theme(self, theme: GridThemes):
+        self.theme = theme
+        self.setBackgroundBrush(QColor(theme.value.background))
+        self.update()
 
     def is_valid_drop_position(self, position, dragging_widget=None, span_x=1, span_y=1):
         grid_size = self.grid_size
@@ -452,6 +462,11 @@ class SettingsWindow(QDialog):
         self.form = QFormLayout()
         self.root_layout.addLayout(self.form)
 
+        self.form.addRow(Divider("Theme"))
+
+        self.theme = UiColorSettingsSwitcher(settings, "theme", parent)
+        self.form.addRow("Theme", self.theme)
+
         self.form.addRow(Divider("Grid"))
 
         self.grid_size = QSpinBox(minimum=8, maximum=256, singleStep=2, value=self.settings.value("grid", 48, int))  # type: ignore
@@ -486,6 +501,49 @@ class SettingsWindow(QDialog):
     def apply(self):
         self.on_applied.emit()
 
+
+class UiColorSettingsSwitcher(QFrame):
+    def __init__(
+        self,
+        settings: QSettings,
+        key: str,
+        main_window: 'Application',
+    ):
+        super().__init__()
+        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+
+        self.settings = settings
+        self.key = key
+        self.main_window = main_window
+
+        root_layout = QHBoxLayout()
+        self.setLayout(root_layout)
+
+        self.dark_mode = QRadioButton("Dark")
+        self.light_mode = QRadioButton("Light")
+        self.system_mode = QRadioButton("System")
+
+        root_layout.addWidget(self.dark_mode)
+        root_layout.addWidget(self.light_mode)
+        root_layout.addWidget(self.system_mode)
+
+        # Load saved theme setting
+        current_theme = self.settings.value(self.key, "Dark")
+        if current_theme == "Dark":
+            self.dark_mode.setChecked(True)
+        elif current_theme == "Light":
+            self.light_mode.setChecked(True)
+        else:
+            self.system_mode.setChecked(True)
+
+        self.dark_mode.toggled.connect(lambda: self.save_setting("Dark"))
+        self.light_mode.toggled.connect(lambda: self.save_setting("Light"))
+        self.system_mode.toggled.connect(lambda: self.save_setting("System"))
+
+    def save_setting(self, value: str):
+        self.settings.setValue(self.key, value)
+        self.settings.sync()
+        self.main_window.apply_theme()
 
 class TopicStatusPanel(QStackedWidget):
     def __init__(self, client: CommunicationClient):
@@ -530,7 +588,7 @@ class TopicStatusPanel(QStackedWidget):
 
 
 class Application(QMainWindow):
-    def __init__(self):
+    def __init__(self, app: QApplication):
         super().__init__()
         self.setWindowTitle("KevinbotLib Dashboard")
 
@@ -581,6 +639,7 @@ class Application(QMainWindow):
             grid_size=self.settings.value("grid", 48, int),  # type: ignore
             rows=self.settings.value("rows", 10, int),  # type: ignore
             cols=self.settings.value("cols", 10, int),  # type: ignore
+            theme=GridThemes.Dark,
         )
         palette = WidgetPalette(self.graphics_view, self.client)
         self.model = palette.model
@@ -604,6 +663,26 @@ class Application(QMainWindow):
 
         self.settings_window = SettingsWindow(self, self.settings)
         self.settings_window.on_applied.connect(self.refresh_settings)
+
+        self.theme = Theme(ThemeStyle.System)
+        self.apply_theme()
+
+    def apply_theme(self):
+        theme_name = self.settings.value("theme", "Dark")
+        if theme_name == "Dark":
+            self.theme.set_style(ThemeStyle.Dark)
+            self.graphics_view.set_theme(GridThemes.Dark)
+        elif theme_name == "Light":
+            self.theme.set_style(ThemeStyle.Light)
+            self.graphics_view.set_theme(GridThemes.Light)
+        else:
+            self.theme.set_style(ThemeStyle.System)
+            if self.theme.is_dark():
+                self.graphics_view.set_theme(GridThemes.Dark)
+            else:
+                self.graphics_view.set_theme(GridThemes.Light)
+        self.theme.apply(self)
+
 
     def update_latency(self):
         if self.client.websocket:

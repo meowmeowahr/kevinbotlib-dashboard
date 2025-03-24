@@ -14,9 +14,16 @@ class ThemeOptions:
 
 class Themes(Enum):
     Dark = ThemeOptions(
-        background="#1A1A1A",
-        item_background="#2E2E2E",
-        foreground="#E0E0E0",
-        primary="#005C9F",
-        border="#292929",
+        background="#1e272a",
+        item_background="#30383b",
+        foreground="#d0d8d8",
+        primary="#4682b4",
+        border="#2d3639",
+    )
+    Light = ThemeOptions(
+        background="#ffffff",
+        item_background="#dcdcdc",
+        foreground="#333333",
+        primary="#4682b4",
+        border="#d5d5d5",
     )
